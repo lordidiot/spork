@@ -1,6 +1,7 @@
 use text_io::read;
 use std::error::Error;
 use std::net::TcpStream;
+use std::io::Read;
 
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -34,24 +35,31 @@ impl Config {
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let addr = format!("{}:{}", config.host, config.port);
+
     let mut stream = TcpStream::connect(&addr)?;
+    eprintln!("[+] Connected!");
+    stream.set_nonblocking(true).unwrap();
 
     // Channel for Client to Server
     let (tx_c2s, rx_c2s): (Sender<Message>, Receiver<Message>) = mpsc::channel();
     // Channel for Server to Client
-    let (tx_s2c, rx_s2c): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+    let (tx_s2c, _rx_s2c): (Sender<Message>, Receiver<Message>) = mpsc::channel();
 
-    let tcp_thread = spawn_tcp_thread(&mut stream, tx_s2c, rx_c2s);
+    let tcp_thread = spawn_tcp_thread(stream, tx_s2c, rx_c2s);
 
-    loop {
+    let mut running = true;
+    while running {
         let line: String = read!("{}\n");
-        match line.as_str() {
-            "exit" => break,
-            "quit" => break,
-            _ => {
-                let msg = Message::Data(line);
+        match &line[..line.len()-1] {
+            "exit" | "quit" => {
+                let msg = Message::Shutdown;
                 tx_c2s.send(msg).unwrap();
-                println!("[+] Sent to thread");
+                running = false;
+            },
+            _ => {
+                let data = line.into_bytes();
+                let msg = Message::Data(data);
+                tx_c2s.send(msg).unwrap();
             },
         };
     }

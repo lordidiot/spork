@@ -1,35 +1,40 @@
-use std::error::Error;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::thread;
 use std::sync::mpsc::{Receiver, Sender};
-
 use std::time::Duration;
+use bstr::ByteSlice;
 
 pub enum Message {
-    Success,
-    Error(Box<dyn Error>),
+    //Success,
     Shutdown,
-    Data(String),
+    //Error,
+    Data(Vec<u8>),
 }
 
 pub fn spawn_tcp_thread(
-    stream: &mut TcpStream,
-    tx: Sender<Message>,
+    mut stream: TcpStream,
+    _tx: Sender<Message>,
     rx: Receiver<Message>,
 ) -> thread::JoinHandle<()> {
 
-    //stream.set_nonblocking(true).unwrap();
-
     let child = thread::spawn(move || {
-        loop {
-            //stream.read()
+        let mut data: [u8; 1000] = [0; 1000];
+        let mut running = true;
+        while running {
+            // data from server
+            if let Ok(data_len) = stream.read(&mut data) {
+                print!("{}", &data[..data_len].to_str_lossy());
+            }
+            // messages from client
             if let Ok(msg) = rx.try_recv() {
                 match msg {
                     Message::Shutdown => {
-                        return ();
+                        running = false;
                     },
                     Message::Data(s) => {
-                        println!("Echo: {}", s);
+                        stream.write(&s).unwrap();
+                        stream.flush().unwrap();
                     },
                     _ => (),
                 }
